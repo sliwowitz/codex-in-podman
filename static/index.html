@@ -17,6 +17,7 @@
     #panes{flex:1;position:relative}
     .pane{position:absolute;inset:0;overflow:auto;padding:12px;display:none}
     .pane.active{display:block}
+    #commands{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace}
     .bubble{max-width:980px;margin:10px 0;padding:10px;border-radius:8px;border:1px solid #eee;background:#fff}
     .user{background:#e8f0ff;border-color:#c8d8ff}
     .codex{background:#fff;border-color:#e6e6e6}
@@ -28,7 +29,7 @@
     #input textarea{flex:1;padding:8px;border:0;resize:vertical;min-height:56px}
     #input button{padding:8px 14px;border:0;border-left:1px solid #ddd;cursor:pointer}
     #status{color:#666}
-    .cmd{font-family:ui-monospace; background:#f7f7f7; border:1px solid #ececec; padding:6px 8px; border-radius:6px; margin:6px 0}
+    .cmd{font-family:inherit;background:#f7f7f7;border:1px solid #ececec;padding:6px 8px;border-radius:6px;margin:6px 0;white-space:pre-wrap}
   </style>
 </head>
 <body>
@@ -125,6 +126,14 @@
       if (buf.trim()){ bubble('codex', buf, true); buf=''; }
     }
 
+    function appendCommandBlock(text, variant='output'){
+      const block = document.createElement('pre');
+      block.className = `cmd cmd-${variant}`;
+      block.textContent = text;
+      cmds.appendChild(block);
+      cmds.scrollTop = cmds.scrollHeight;
+    }
+
     function startStream(){
       if (es) es.close();
       es = new EventSource(`/api/stream/${runId}`);
@@ -142,16 +151,16 @@
             buf += (buf ? '\n' : '') + (evObj.text || evObj.md || '');
             break;
           case 'tool.start':
-            // show tool name/args immediately
-            cmds.appendChild(Object.assign(document.createElement('div'),{
-              className:'cmd', textContent:`$ ${evObj.tool?.name || 'tool'} ${(evObj.tool?.args||[]).join(' ')}`}));
-            cmds.scrollTop = cmds.scrollHeight;
+            appendCommandBlock(`$ ${evObj.tool?.name || 'tool'} ${(evObj.tool?.args||[]).join(' ')}`.trim(), 'start');
             break;
           case 'tool.stdout':
           case 'tool.stderr':
-            cmds.appendChild(Object.assign(document.createElement('div'),{
-              className:'cmd', textContent:(evObj.text||'').toString()}));
-            cmds.scrollTop = cmds.scrollHeight;
+            appendCommandBlock((evObj.text||'').toString(), 'output');
+            break;
+          case 'tool.end':
+            if (typeof evObj.exit_code !== 'undefined'){
+              appendCommandBlock(`exit ${evObj.exit_code}`, 'meta');
+            }
             break;
           case 'diff':
             diffs.innerHTML='';

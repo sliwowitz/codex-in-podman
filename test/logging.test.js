@@ -77,5 +77,5 @@ test("logRun falls back to console-only logging when the log file cannot be open
   logRun("fallback", "capture output", undefined);
 
   assert.equal(messages.length, 1, "logRun should still emit console output without a file stream");
-  assert.match(messages[0], /\[run fallback] capture output/, "fallback console line should match normal format");
+  assert.match(messages[0], /^\[.*\] \[run fallback\] capture output/, "fallback console line should match normal format");
 });

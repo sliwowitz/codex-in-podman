@@ -48,7 +48,7 @@ test("logRun writes serialized entries to the log stream and console", async () 
   assert.equal(writes.length, 1, "log stream should receive exactly one write call");
   assert.match(
     writes[0],
-    /\[run abc123] Applied diff — {"files":2}\n$/,
+    /^\[.*\] \[run abc123\] Applied diff — {"files":2}\n$/,
     "log stream write should include structured payload with newline"
   );
   assert.equal(messages.length, 1, "console logger should mirror each entry");

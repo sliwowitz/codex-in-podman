@@ -52,7 +52,7 @@ test("logRun writes serialized entries to the log stream and console", async () 
     "log stream write should include structured payload with newline"
   );
   assert.equal(messages.length, 1, "console logger should mirror each entry");
-  assert.match(messages[0], /\[run abc123] Applied diff/, "console output should include the run id and message");
+  assert.match(messages[0], /^\[.*\] \[run abc123\] Applied diff/, "console output should include the timestamp, run id and message");
 });
 
 test("logRun falls back to console-only logging when the log file cannot be opened", async () => {

@@ -8,14 +8,16 @@ import {
   getLastDiff,
   getRun,
   setLastDiff
-} from "../lib/runStore.js";
+} from "../lib/runStore.ts";
 
 test("createRun stores prompt and initializes run state", () => {
   const runId = createRun("hello world");
   const stored = getRun(runId);
 
   assert.ok(runId, "runId should be truthy");
-  assert.ok(stored, "run should exist immediately after creation");
+  if (!stored) {
+    throw new Error("run should exist immediately after creation");
+  }
   assert.equal(stored.prompt, "hello world");
   assert.equal(getLastDiff(runId), null);
   assert.deepEqual(getCommands(runId), []);

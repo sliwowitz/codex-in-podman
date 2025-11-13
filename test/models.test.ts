@@ -3,67 +3,94 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
-import { FALLBACK_MODELS } from "../lib/config.js";
+import { FALLBACK_MODELS } from "../lib/config.ts";
+
+type ModelsModule = typeof import("../lib/models.ts");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const modelsModuleHref = pathToFileURL(path.join(__dirname, "..", "lib", "models.js")).href;
+const modelsModuleHref = pathToFileURL(path.join(__dirname, "..", "lib", "models.ts")).href;
 
-const originalFetch = global.fetch;
-const trackedEnvKeys = ["OPENAI_API_KEY", "CODEXUI_MODEL_CACHE_MS"];
-const originalEnv = Object.fromEntries(trackedEnvKeys.map((key) => [key, process.env[key]]));
+const originalFetch = globalThis.fetch;
+const trackedEnvKeys = ["OPENAI_API_KEY", "CODEXUI_MODEL_CACHE_MS"] as const;
+const originalEnv: Record<(typeof trackedEnvKeys)[number], string | undefined> = Object.fromEntries(
+  trackedEnvKeys.map(key => [key, process.env[key]])
+) as Record<(typeof trackedEnvKeys)[number], string | undefined>;
+const globalWithMutableFetch = globalThis as typeof globalThis & { fetch?: typeof fetch };
 
 test.afterEach(() => {
   for (const key of trackedEnvKeys) {
     if (originalEnv[key] === undefined) {
-      delete process.env[key];
+      clearEnv(key);
     } else {
       process.env[key] = originalEnv[key];
     }
   }
-  global.fetch = originalFetch;
+  if (originalFetch) {
+    globalWithMutableFetch.fetch = originalFetch;
+  } else {
+    Reflect.deleteProperty(globalWithMutableFetch, "fetch");
+  }
 });
 
-async function loadModelsModule({ apiKey, fetchImpl, cacheMs } = {}) {
+async function loadModelsModule({ apiKey, fetchImpl, cacheMs }: LoadModelsModuleOptions = {}): Promise<ModelsModule> {
   applyEnvOverride("OPENAI_API_KEY", apiKey);
   applyEnvOverride("CODEXUI_MODEL_CACHE_MS", cacheMs);
   if (fetchImpl === undefined) {
-    global.fetch = originalFetch;
+    if (originalFetch) {
+      globalWithMutableFetch.fetch = originalFetch;
+    } else {
+      Reflect.deleteProperty(globalWithMutableFetch, "fetch");
+    }
   } else if (fetchImpl === null) {
-    global.fetch = undefined;
+    Reflect.deleteProperty(globalWithMutableFetch, "fetch");
   } else {
-    global.fetch = fetchImpl;
+    globalWithMutableFetch.fetch = fetchImpl;
   }
   const href = `${modelsModuleHref}?t=${randomUUID()}`;
-  return import(href);
+  return import(href) as Promise<ModelsModule>;
 }
 
-function applyEnvOverride(key, value) {
+type FetchLike = typeof fetch;
+
+interface LoadModelsModuleOptions {
+  apiKey?: string | null;
+  fetchImpl?: FetchLike | null;
+  cacheMs?: number | string | null;
+}
+
+function applyEnvOverride(key: (typeof trackedEnvKeys)[number], value: string | number | null | undefined): void {
   if (value === undefined || value === null) {
-    delete process.env[key];
+    clearEnv(key);
   } else {
     process.env[key] = String(value);
   }
 }
 
+function clearEnv(key: (typeof trackedEnvKeys)[number]): void {
+  Reflect.deleteProperty(process.env, key);
+}
+
+function jsonResponse(payload: unknown, init: ResponseInit = {}): Response {
+  const headers = new Headers(init.headers);
+  if (!headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
+  return new Response(JSON.stringify(payload), { ...init, headers });
+}
+
 test("getAvailableModels merges remote data with fallbacks and caches calls", async () => {
   let callCount = 0;
-  const mockFetch = async () => {
+  const mockFetch: FetchLike = async (..._args) => {
     callCount += 1;
-    return {
-      ok: true,
-      status: 200,
-      async json() {
-        return {
-          data: [
-            { id: "gpt-zeta" },
-            { id: "ft:skip-me" },
-            { id: "o4" },
-            { id: "deprecated-model" }
-          ]
-        };
-      }
-    };
+    return jsonResponse({
+      data: [
+        { id: "gpt-zeta" },
+        { id: "ft:skip-me" },
+        { id: "o4" },
+        { id: "deprecated-model" }
+      ]
+    });
   };
   const { getAvailableModels } = await loadModelsModule({ apiKey: "token", fetchImpl: mockFetch });
   const first = await getAvailableModels();
@@ -111,16 +138,10 @@ test("getAvailableModels falls back to bundled list when remote fetch is unavail
 
 test("getAvailableModels coalesces concurrent fetches", async () => {
   let callCount = 0;
-  const mockFetch = async () => {
+  const mockFetch: FetchLike = async (..._args) => {
     callCount += 1;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    return {
-      ok: true,
-      status: 200,
-      async json() {
-        return { data: [{ id: "gpt-concurrent" }] };
-      }
-    };
+    await new Promise(resolve => setTimeout(resolve, 10));
+    return jsonResponse({ data: [{ id: "gpt-concurrent" }] });
   };
   const { getAvailableModels } = await loadModelsModule({ apiKey: "token", fetchImpl: mockFetch });
   const [first, second] = await Promise.all([getAvailableModels(), getAvailableModels()]);

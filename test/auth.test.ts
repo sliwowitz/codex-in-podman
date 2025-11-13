@@ -5,18 +5,22 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 
+type AuthModule = typeof import("../lib/auth.ts");
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const authModuleHref = pathToFileURL(path.join(__dirname, "..", "lib", "auth.js")).href;
+const authModuleHref = pathToFileURL(path.join(__dirname, "..", "lib", "auth.ts")).href;
 
-const trackedEnvKeys = ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_AUTH"];
-const originalEnv = Object.fromEntries(trackedEnvKeys.map((key) => [key, process.env[key]]));
+const trackedEnvKeys = ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_AUTH"] as const;
+const originalEnv: Record<(typeof trackedEnvKeys)[number], string | undefined> = Object.fromEntries(
+  trackedEnvKeys.map(key => [key, process.env[key]])
+) as Record<(typeof trackedEnvKeys)[number], string | undefined>;
 const originalReadFileSync = fs.readFileSync;
 
 test.afterEach(() => {
   for (const key of trackedEnvKeys) {
     if (originalEnv[key] === undefined) {
-      delete process.env[key];
+      clearEnv(key);
     } else {
       process.env[key] = originalEnv[key];
     }
@@ -24,30 +28,40 @@ test.afterEach(() => {
   fs.readFileSync = originalReadFileSync;
 });
 
-async function loadAuthModule({ openaiKey, codexKey, authPath } = {}) {
+async function loadAuthModule({ openaiKey, codexKey, authPath }: LoadAuthModuleOptions = {}): Promise<AuthModule> {
   applyEnv("OPENAI_API_KEY", openaiKey);
   applyEnv("CODEX_API_KEY", codexKey);
   applyEnv("CODEX_AUTH", authPath);
   const href = `${authModuleHref}?t=${randomUUID()}`;
-  return import(href);
+  return import(href) as Promise<AuthModule>;
 }
 
-function applyEnv(key, value) {
+interface LoadAuthModuleOptions {
+  openaiKey?: string | null;
+  codexKey?: string | null;
+  authPath?: string | null;
+}
+
+function applyEnv(key: (typeof trackedEnvKeys)[number], value: string | null | undefined): void {
   if (value === undefined || value === null) {
-    delete process.env[key];
+    clearEnv(key);
   } else {
     process.env[key] = value;
   }
 }
 
-function mockAuthFile(contents) {
-  fs.readFileSync = () => contents;
+function clearEnv(key: (typeof trackedEnvKeys)[number]): void {
+  Reflect.deleteProperty(process.env, key);
 }
 
-function mockAuthFileFailure(message = "missing auth file") {
-  fs.readFileSync = () => {
+function mockAuthFile(contents: string): void {
+  fs.readFileSync = ((..._args: Parameters<typeof fs.readFileSync>) => contents) as typeof fs.readFileSync;
+}
+
+function mockAuthFileFailure(message = "missing auth file"): void {
+  fs.readFileSync = ((..._args: Parameters<typeof fs.readFileSync>) => {
     throw new Error(message);
-  };
+  }) as typeof fs.readFileSync;
 }
 
 test("prefer OPENAI_API_KEY over other sources", async () => {
